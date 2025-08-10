@@ -236,6 +236,83 @@
       user-select:none;
       z-index: 98;
     }
+
+    /* MODALES MINIMALISTAS */
+    #modalOverlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.4);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 200;
+    }
+    #modalBox {
+      background: white;
+      color: black;
+      border-radius: 8px;
+      padding: 20px 25px;
+      max-width: 90%;
+      width: 320px;
+      box-sizing: border-box;
+      box-shadow: 0 0 10px rgba(0,0,0,0.2);
+      font-family: 'Rubik', sans-serif;
+      text-align: center;
+    }
+    body.dark #modalBox {
+      background: #222;
+      color: #eee;
+      box-shadow: 0 0 10px rgba(255,255,255,0.2);
+    }
+    #modalTitle {
+      font-weight: 700;
+      font-size: 1.3em;
+      margin-bottom: 12px;
+    }
+    #modalMessage {
+      font-size: 1.1em;
+      margin-bottom: 20px;
+      white-space: pre-wrap;
+    }
+    #modalInput {
+      width: 100%;
+      padding: 8px 10px;
+      font-size: 1em;
+      margin-bottom: 20px;
+      border: 2px solid black;
+      border-radius: 6px;
+      background: transparent;
+      color: inherit;
+      outline: none;
+      box-sizing: border-box;
+    }
+    body.dark #modalInput {
+      border-color: #eee;
+    }
+    #modalButtons {
+      display: flex;
+      justify-content: center;
+      gap: 15px;
+    }
+    #modalButtons button {
+      padding: 8px 20px;
+      font-weight: 700;
+      font-size: 1em;
+      border-radius: 6px;
+      border: 2px solid black;
+      background: none;
+      cursor: pointer;
+      color: inherit;
+      min-width: 80px;
+    }
+    #modalButtons button:hover {
+      background-color: black;
+      color: white;
+    }
+    body.dark #modalButtons button:hover {
+      background-color: white;
+      color: black;
+    }
   </style>
 </head>
 <body>
@@ -286,6 +363,16 @@
   <div id="historyBox"></div>
   <canvas id="progressChart"></canvas>
 
+  <!-- MODAL -->
+  <div id="modalOverlay">
+    <div id="modalBox">
+      <div id="modalTitle"></div>
+      <div id="modalMessage"></div>
+      <input type="text" id="modalInput" style="display:none" />
+      <div id="modalButtons"></div>
+    </div>
+  </div>
+
   <!-- Audios -->
   <audio id="sound-coin" src="https://cdn.pixabay.com/audio/2022/03/15/audio_cfc4f0b55b.mp3" preload="auto"></audio>
   <audio id="sound-bell" src="https://cdn.pixabay.com/audio/2022/03/15/audio_9e0a778b3f.mp3" preload="auto"></audio>
@@ -319,6 +406,51 @@
       bell: document.getElementById('sound-bell')
     };
     let currentSound = 'coin';
+
+    // Modal elements
+    const modalOverlay = document.getElementById('modalOverlay');
+    const modalBox = document.getElementById('modalBox');
+    const modalTitle = document.getElementById('modalTitle');
+    const modalMessage = document.getElementById('modalMessage');
+    const modalInput = document.getElementById('modalInput');
+    const modalButtons = document.getElementById('modalButtons');
+
+    // Función para mostrar modal genérico
+    // options: { title, message, input (bool), inputValue (string), buttons: [{text, value, style}], onClose (func) }
+    function showModal(options) {
+      modalTitle.textContent = options.title || '';
+      modalMessage.textContent = options.message || '';
+      modalInput.style.display = options.input ? 'block' : 'none';
+      if(options.input) {
+        modalInput.value = options.inputValue || '';
+        modalInput.focus();
+        modalInput.select();
+      }
+      modalButtons.innerHTML = '';
+
+      options.buttons.forEach(btn => {
+        const b = document.createElement('button');
+        b.textContent = btn.text;
+        if(btn.style) {
+          b.style.cssText = btn.style;
+        }
+        b.onclick = () => {
+          hideModal();
+          if(options.input) {
+            options.onClose && options.onClose(modalInput.value, btn.value);
+          } else {
+            options.onClose && options.onClose(btn.value);
+          }
+        };
+        modalButtons.appendChild(b);
+      });
+
+      modalOverlay.style.display = 'flex';
+    }
+
+    function hideModal() {
+      modalOverlay.style.display = 'none';
+    }
 
     // Carga desde localStorage
     function loadData() {
@@ -394,14 +526,96 @@
       updateHistory();
     }
 
+    // Añadir cantidad con modal para confirmar o custom input
     function addAmount(amount) {
       if(amount <= 0) return;
-      const p = piggies[currentPiggyId];
-      p.total += amount;
-      p.history.push({amount: amount, date: Date.now(), desc: 'Ingreso'});
-      updateUI();
-      playSound();
+      // Confirmar ingreso antes de añadir
+      showModal({
+        title: 'Confirmar ingreso',
+        message: `¿Quieres añadir ${amount.toFixed(2)}€ a la hucha?`,
+        buttons: [
+          {text: 'Cancelar', value: 'cancel', style: 'color: red;'},
+          {text: 'Confirmar', value: 'confirm'}
+        ],
+        onClose: (value) => {
+          if(value === 'confirm') {
+            const p = piggies[currentPiggyId];
+            p.total += amount;
+            p.history.push({amount: amount, date: Date.now(), desc: 'Ingreso'});
+            updateUI();
+            playSound();
+          }
+        }
+      });
     }
+
+    // Añadir cantidad custom con modal para validar
+    addCustomBtn.onclick = () => {
+      showModal({
+        title: 'Añadir cantidad personalizada',
+        message: 'Introduce la cantidad a añadir (€):',
+        input: true,
+        inputValue: '',
+        buttons: [
+          {text: 'Cancelar', value: 'cancel', style: 'color: red;'},
+          {text: 'Añadir', value: 'add'}
+        ],
+        onClose: (inputVal, btnVal) => {
+          if(btnVal === 'add') {
+            const val = parseFloat(inputVal);
+            if(isNaN(val) || val <= 0) {
+              alert('Por favor, introduce un número válido mayor que 0.');
+              return;
+            }
+            addAmount(val);
+          }
+        }
+      });
+    };
+
+    // Editar total con modal input
+    editBtn.onclick = () => {
+      showModal({
+        title: 'Editar total',
+        message: 'Introduce el nuevo total (€):',
+        input: true,
+        inputValue: piggies[currentPiggyId].total.toFixed(2),
+        buttons: [
+          {text: 'Cancelar', value: 'cancel', style: 'color: red;'},
+          {text: 'Guardar', value: 'save'}
+        ],
+        onClose: (inputVal, btnVal) => {
+          if(btnVal === 'save') {
+            const val = parseFloat(inputVal);
+            if(isNaN(val) || val < 0) {
+              alert('Por favor, introduce un número válido igual o mayor que 0.');
+              return;
+            }
+            editTotal(val);
+          }
+        }
+      });
+    };
+
+    // Reiniciar con confirm modal
+    resetBtn.onclick = () => {
+      showModal({
+        title: 'Reiniciar hucha',
+        message: '¿Seguro que quieres reiniciar la hucha? Se perderá todo el progreso.',
+        buttons: [
+          {text: 'Cancelar', value: 'cancel', style: 'color: red;'},
+          {text: 'Reiniciar', value: 'reset'}
+        ],
+        onClose: (value) => {
+          if(value === 'reset') {
+            const p = piggies[currentPiggyId];
+            p.history.push({amount: -p.total, date: Date.now(), desc: 'Reinicio'});
+            p.total = 0;
+            updateUI();
+          }
+        }
+      });
+    };
 
     function editTotal(newTotal) {
       if(newTotal < 0) return;
@@ -409,14 +623,6 @@
       const diff = newTotal - p.total;
       p.total = newTotal;
       p.history.push({amount: diff, date: Date.now(), desc: 'Edición total'});
-      updateUI();
-    }
-
-    function resetPiggy() {
-      if(!confirm('¿Reiniciar la hucha?')) return;
-      const p = piggies[currentPiggyId];
-      p.history.push({amount: -p.total, date: Date.now(), desc: 'Reinicio'});
-      p.total = 0;
       updateUI();
     }
 
@@ -459,6 +665,7 @@
         settingsMenu.style.display = 'none';
         historyBox.style.display = 'none';
         hideAddButtons();
+        hideChart();
       }
     }
     function toggleSettings() {
@@ -469,6 +676,7 @@
         piggyMenu.style.display = 'none';
         historyBox.style.display = 'none';
         hideAddButtons();
+        hideChart();
       }
     }
 
@@ -493,13 +701,29 @@
       const addBtn = document.createElement('button');
       addBtn.textContent = '➕ Añadir hucha';
       addBtn.onclick = () => {
-        const name = prompt('Nombre para nueva hucha:');
-        if(name && name.trim() !== ''){
-          const newId = Date.now().toString();
-          piggies[newId] = {name: name.trim(), total: 0, goal: 0, history: []};
-          saveData();
-          buildPiggyMenu();
-        }
+        showModal({
+          title: 'Nueva hucha',
+          message: 'Introduce el nombre para la nueva hucha:',
+          input: true,
+          inputValue: '',
+          buttons: [
+            {text: 'Cancelar', value: 'cancel', style: 'color: red;'},
+            {text: 'Crear', value: 'create'}
+          ],
+          onClose: (inputVal, btnVal) => {
+            if(btnVal === 'create') {
+              const name = inputVal.trim();
+              if(!name) {
+                alert('El nombre no puede estar vacío.');
+                return;
+              }
+              const newId = Date.now().toString();
+              piggies[newId] = {name: name, total: 0, goal: 0, history: []};
+              saveData();
+              buildPiggyMenu();
+            }
+          }
+        });
       };
       piggyMenu.appendChild(addBtn);
 
@@ -507,14 +731,24 @@
         const delBtn = document.createElement('button');
         delBtn.textContent = '🗑️ Eliminar hucha actual';
         delBtn.onclick = () => {
-          if(confirm(`¿Eliminar la hucha "${piggies[currentPiggyId].name}"?`)){
-            delete piggies[currentPiggyId];
-            const ids = Object.keys(piggies);
-            currentPiggyId = ids[0];
-            loadPiggy(currentPiggyId);
-            saveData();
-            buildPiggyMenu();
-          }
+          showModal({
+            title: 'Eliminar hucha',
+            message: `¿Eliminar la hucha "${piggies[currentPiggyId].name}"? Esta acción no se puede deshacer.`,
+            buttons: [
+              {text: 'Cancelar', value: 'cancel', style: 'color: red;'},
+              {text: 'Eliminar', value: 'delete'}
+            ],
+            onClose: (value) => {
+              if(value === 'delete') {
+                delete piggies[currentPiggyId];
+                const ids = Object.keys(piggies);
+                currentPiggyId = ids[0];
+                loadPiggy(currentPiggyId);
+                saveData();
+                buildPiggyMenu();
+              }
+            }
+          });
         };
         piggyMenu.appendChild(delBtn);
       }
@@ -560,29 +794,6 @@
         addAmount(amount);
       };
     });
-
-    // Añadir cantidad custom
-    addCustomBtn.onclick = () => {
-      const val = parseFloat(customInput.value);
-      if(!isNaN(val) && val > 0){
-        addAmount(val);
-        customInput.value = '';
-      }
-    };
-
-    // Editar total
-    editBtn.onclick = () => {
-      const val = prompt('Nuevo total (€):', piggies[currentPiggyId].total);
-      const num = parseFloat(val);
-      if(!isNaN(num) && num >= 0){
-        editTotal(num);
-      }
-    };
-
-    // Reiniciar hucha
-    resetBtn.onclick = () => {
-      resetPiggy();
-    };
 
     // Inputs meta y nombre
     goalInput.oninput = () => {
@@ -668,7 +879,7 @@
 
     // Inicializar
     loadData();
-    updateUI();
+
   </script>
 </body>
 </html>
