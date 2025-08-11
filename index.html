@@ -313,6 +313,16 @@
       background-color: white;
       color: black;
     }
+
+    /* Locked visual helper */
+    .locked {
+      opacity: 0.55;
+    }
+    .pro-badge {
+      font-size: 0.9em;
+      font-weight: 700;
+      margin-left: 6px;
+    }
   </style>
 </head>
 <body>
@@ -348,16 +358,30 @@
   <div id="piggyMenu"></div>
   <div id="settingsMenu">
     <strong>🎵 Sonido:</strong>
-    <button data-sound="coin" onclick="setSound('coin')">Sonido 1</button>
-    <button data-sound="bell" onclick="setSound('bell')">Sonido 2</button>
-    <button data-sound="none" onclick="setSound('none')">Silencio</button>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button data-sound="coin" onclick="handleSoundBtn('coin')">Sonido 1</button>
+      <button data-sound="bell" onclick="handleSoundBtn('bell')">Sonido 2 <span class="pro-badge">🔒 Pro</span></button>
+      <button data-sound="none" onclick="handleSoundBtn('none')">Silencio</button>
+    </div>
     <hr />
     <strong>🌓 Modo:</strong>
-    <button onclick="toggleDarkMode()">Alternar modo oscuro</button>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button onclick="toggleDarkMode()">Alternar modo oscuro</button>
+      <button onclick="handleAutoDark()" title="Automático (Pro)">Modo oscuro automático <span class="pro-badge">🔒 Pro</span></button>
+    </div>
     <hr />
     <strong>📜 Historial:</strong>
-    <button onclick="toggleHistory()">Ver historial</button>
-    <button id="showProgressBtn">Ver progreso</button>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button onclick="toggleHistory()" id="historyBtn">Ver historial <span class="pro-badge">🔒 Pro</span></button>
+      <button id="showProgressBtn">Ver progreso <span class="pro-badge">🔒 Pro</span></button>
+    </div>
+    <hr />
+    <strong>🔑 Pro & Creador:</strong>
+    <div style="display:flex;gap:6px;flex-direction:column;">
+      <button onclick="openBuyPro()">Comprar Pro</button>
+      <button onclick="enterCreatorCode()">Introducir código del creador</button>
+      <div id="proStatus" style="margin-top:6px;font-weight:700;"></div>
+    </div>
   </div>
 
   <div id="historyBox"></div>
@@ -381,10 +405,17 @@
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <script>
+    // --- CONFIG ---
+    const CREATOR_CODE = 'CREADOR2025'; // cambia por el código que quieras
+    const SIMULATED_PRICE_TEXT = '1€/mes'; // texto mostrado en modal de compra
+
+    // --- ESTADO GLOBAL ---
     let piggies = {};
     let currentPiggyId = null;
     let chart = null;
+    let isProUser = false; // control principal de Pro
 
+    // --- SELECTORES ---
     const counter = document.getElementById('counter');
     const toggleAddBtn = document.getElementById('toggleAdd');
     const addButtonsDiv = document.getElementById('addButtons');
@@ -399,6 +430,7 @@
     const settingsMenu = document.getElementById('settingsMenu');
     const historyBox = document.getElementById('historyBox');
     const showProgressBtn = document.getElementById('showProgressBtn');
+    const proStatusDiv = document.getElementById('proStatus');
 
     // Sonidos
     const sounds = {
@@ -415,7 +447,7 @@
     const modalInput = document.getElementById('modalInput');
     const modalButtons = document.getElementById('modalButtons');
 
-    // Función para mostrar modal genérico
+    // ---------- UTIL: MODAL ----------
     // options: { title, message, input (bool), inputValue (string), buttons: [{text, value, style}], onClose (func) }
     function showModal(options) {
       modalTitle.textContent = options.title || '';
@@ -452,12 +484,114 @@
       modalOverlay.style.display = 'none';
     }
 
-    // Carga desde localStorage
+    // ---------- PRO: gestión ----------
+    function loadProStatus() {
+      const stored = localStorage.getItem('isProUser');
+      isProUser = stored === 'true';
+      applyProUI();
+    }
+    function setPro(val) {
+      isProUser = !!val;
+      localStorage.setItem('isProUser', isProUser ? 'true' : 'false');
+      applyProUI();
+    }
+    function applyProUI() {
+      // Mostrar estado en ajustes
+      proStatusDiv.textContent = isProUser ? 'Status: Pro activado ✅' : 'Status: Versión gratuita (1 hucha)';
+
+      // Marcar visualmente las opciones Pro en ajustes (añadir o quitar clase)
+      // (No deshabilitamos clic para que salte modal de compra)
+      // Actualizamos piggy menu porque creación/eliminación depende de Pro
+      if(!isProUser) {
+        // Si el usuario tiene más de 1 hucha y NO es Pro, recortamos a una sola para respetar la regla Free=1
+        const ids = Object.keys(piggies);
+        if(ids.length > 1) {
+          // Conservamos la primera hucha (la que estaba seleccionada) y eliminamos el resto.
+          // Nota: esto es intencional para que el comportamiento Free sea claro.
+          console.warn('Usuario no Pro con múltiples huchas detectadas — recortando a 1 hucha (se conservará la primera).');
+          const keep = ids[0];
+          const newPiggies = {};
+          newPiggies[keep] = piggies[keep];
+          piggies = newPiggies;
+          currentPiggyId = keep;
+          saveData();
+        }
+      }
+      buildPiggyMenu();
+      updateUI();
+    }
+
+    function requireProFlow(reasonText, onProceed) {
+      // Show modal explaining Pro and option to "Comprar" or "Cancelar".
+      showModal({
+        title: 'Función Pro',
+        message: reasonText + '\n\n¿Quieres desbloquear Pro (' + SIMULATED_PRICE_TEXT + ')?',
+        buttons: [
+          {text: 'Cancelar', value: 'cancel', style: 'color: red;'},
+          {text: 'Comprar Pro', value: 'buy'}
+        ],
+        onClose: (val) => {
+          if(val === 'buy') {
+            // Simulación de compra: activar Pro y ejecutar callback si lo hay
+            setPro(true);
+            showModal({
+              title: '¡Enhorabuena!',
+              message: 'Has desbloqueado la versión Pro. 🎉\nAhora puedes usar todas las funciones.',
+              buttons: [{text: 'Cerrar', value: 'ok'}]
+            });
+            onProceed && onProceed();
+          }
+        }
+      });
+    }
+
+    function openBuyPro() {
+      requireProFlow('La versión Pro desbloquea múltiples huchas, historial completo, gráficos y más.', null);
+    }
+
+    function enterCreatorCode() {
+      showModal({
+        title: 'Código del creador',
+        message: 'Introduce el código del creador para activar Pro:',
+        input: true,
+        inputValue: '',
+        buttons: [
+          {text: 'Cancelar', value: 'cancel', style: 'color: red;'},
+          {text: 'Activar', value: 'activate'}
+        ],
+        onClose: (inputVal, btnVal) => {
+          if(btnVal === 'activate') {
+            const code = (inputVal || '').trim();
+            if(code === CREATOR_CODE) {
+              setPro(true);
+              showModal({
+                title: 'Acceso concedido',
+                message: 'Código correcto — eres Pro. ✅',
+                buttons: [{text:'Cerrar', value:'ok'}]
+              });
+            } else {
+              showModal({
+                title: 'Código incorrecto',
+                message: 'El código no es válido.',
+                buttons: [{text:'Cerrar', value:'ok', style:'color:red;'}]
+              });
+            }
+          }
+        }
+      });
+    }
+
+    // ---------- STORAGE ----------
     function loadData() {
       const data = localStorage.getItem('piggies');
       if(data) {
-        piggies = JSON.parse(data);
-      } else {
+        try {
+          piggies = JSON.parse(data);
+        } catch(e) {
+          piggies = null;
+        }
+      }
+      if(!piggies || Object.keys(piggies).length === 0) {
         piggies = {
           1: {
             name: 'Mi hucha',
@@ -467,15 +601,31 @@
           }
         };
       }
+
+      // En caso de no ser Pro: forzamos que haya solo una hucha
+      const storedPro = localStorage.getItem('isProUser') === 'true';
+      if(!storedPro) {
+        const ids = Object.keys(piggies);
+        if(ids.length > 1) {
+          // Conserva la primera hucha
+          const keep = ids[0];
+          const newPiggies = {};
+          newPiggies[keep] = piggies[keep];
+          piggies = newPiggies;
+          console.warn('No Pro: se han eliminado huchas extras al cargar para forzar 1 hucha.');
+          saveData();
+        }
+      }
+
       currentPiggyId = Object.keys(piggies)[0];
       loadPiggy(currentPiggyId);
     }
 
-    // Guarda en localStorage
     function saveData() {
       localStorage.setItem('piggies', JSON.stringify(piggies));
     }
 
+    // ---------- UI / Funciones principales ----------
     function loadPiggy(id) {
       if(!piggies[id]) return;
       currentPiggyId = id;
@@ -551,6 +701,7 @@
 
     // Añadir cantidad custom con modal para validar
     addCustomBtn.onclick = () => {
+      // Custom add is PRO? No — allow custom add in free. (Only multi-huchas/histogram/chart are Pro.)
       showModal({
         title: 'Añadir cantidad personalizada',
         message: 'Introduce la cantidad a añadir (€):',
@@ -564,7 +715,7 @@
           if(btnVal === 'add') {
             const val = parseFloat(inputVal);
             if(isNaN(val) || val <= 0) {
-              alert('Por favor, introduce un número válido mayor que 0.');
+              showModal({title:'Error', message:'Por favor, introduce un número válido mayor que 0.', buttons:[{text:'Cerrar', value:'ok'}]});
               return;
             }
             addAmount(val);
@@ -588,7 +739,7 @@
           if(btnVal === 'save') {
             const val = parseFloat(inputVal);
             if(isNaN(val) || val < 0) {
-              alert('Por favor, introduce un número válido igual o mayor que 0.');
+              showModal({title:'Error', message:'Por favor, introduce un número válido igual o mayor que 0.', buttons:[{text:'Cerrar', value:'ok'}]});
               return;
             }
             editTotal(val);
@@ -650,9 +801,28 @@
       currentSound = name;
     }
 
+    // Handler para botones de sonido (para bloquear opciones Pro)
+    function handleSoundBtn(name) {
+      // 'bell' is Pro in our model
+      if(name === 'bell' && !isProUser) {
+        requireProFlow('El sonido adicional es una función Pro.', null);
+        return;
+      }
+      setSound(name);
+      showModal({title:'Sonido', message:'Sonido seleccionado: ' + name, buttons:[{text:'Cerrar',value:'ok'}]});
+    }
+
     // Modos
     function toggleDarkMode() {
       document.body.classList.toggle('dark');
+    }
+    function handleAutoDark() {
+      if(!isProUser) {
+        requireProFlow('El modo oscuro automático es una función Pro.', null);
+        return;
+      }
+      // Placeholder: toggle automatic dark mode behaviour (simulate)
+      showModal({title:'Modo automático', message:'Modo oscuro automático activado (simulado).', buttons:[{text:'Cerrar', value:'ok'}]});
     }
 
     // Menús
@@ -699,8 +869,13 @@
       piggyMenu.appendChild(document.createElement('hr'));
 
       const addBtn = document.createElement('button');
-      addBtn.textContent = '➕ Añadir hucha';
+      addBtn.textContent = isProUser ? '➕ Añadir hucha' : '➕ Añadir hucha ' + '🔒';
       addBtn.onclick = () => {
+        if(!isProUser) {
+          requireProFlow('Crear múltiples huchas es una función Pro.', null);
+          return;
+        }
+        // Crear hucha (Pro)
         showModal({
           title: 'Nueva hucha',
           message: 'Introduce el nombre para la nueva hucha:',
@@ -712,9 +887,9 @@
           ],
           onClose: (inputVal, btnVal) => {
             if(btnVal === 'create') {
-              const name = inputVal.trim();
+              const name = (inputVal || '').trim();
               if(!name) {
-                alert('El nombre no puede estar vacío.');
+                showModal({title:'Error', message:'El nombre no puede estar vacío.', buttons:[{text:'Cerrar', value:'ok'}]});
                 return;
               }
               const newId = Date.now().toString();
@@ -727,7 +902,7 @@
       };
       piggyMenu.appendChild(addBtn);
 
-      if(Object.keys(piggies).length > 1){
+      if(Object.keys(piggies).length > 1 && isProUser){
         const delBtn = document.createElement('button');
         delBtn.textContent = '🗑️ Eliminar hucha actual';
         delBtn.onclick = () => {
@@ -751,11 +926,18 @@
           });
         };
         piggyMenu.appendChild(delBtn);
+      } else if(!isProUser) {
+        // Show disabled delete hint if more than one but not pro (unlikely due to trimming)
+        // We won't show delete button for non-pro to avoid confusion
       }
     }
 
     // Historial
     function toggleHistory() {
+      if(!isProUser) {
+        requireProFlow('El historial completo es una función Pro.', null);
+        return;
+      }
       if(historyBox.style.display === 'block'){
         historyBox.style.display = 'none';
       } else {
@@ -864,6 +1046,10 @@
 
     // Botón Ver progreso (mostrar/ocultar gráfica)
     showProgressBtn.onclick = () => {
+      if(!isProUser) {
+        requireProFlow('Los gráficos de progreso son una función Pro.', null);
+        return;
+      }
       const canvas = document.getElementById('progressChart');
       if(canvas.style.display === 'block'){
         canvas.style.display = 'none';
@@ -877,8 +1063,12 @@
       }
     };
 
-    // Inicializar
-    loadData();
+    // Inicializar al cargar
+    (function init() {
+      loadProStatus();
+      loadData();
+      applyProUI();
+    })();
 
   </script>
 </body>
